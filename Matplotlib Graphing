@@ -1,0 +1,65 @@
+from mpl_toolkits.mplot3d import Axes3D
+from matplotlib import cm
+from matplotlib.ticker import LinearLocator, FormatStrFormatter
+import matplotlib.pyplot as plt
+import numpy
+from matplotlib import animation
+from numpy import array, zeros, linspace, meshgrid
+from mpl_toolkits.mplot3d import axes3d
+import warnings
+warnings.filterwarnings("ignore", category = DeprecationWarning)
+
+vid_surf_x_0 = numpy.load("/Users/mitchellsailsbery/ownCloud/PERCS/Modeling/Python_Plotting/small_2000000_x_0.npy")
+vid_surf_x_2 = numpy.load("/Users/mitchellsailsbery/ownCloud/PERCS/Modeling/Python_Plotting/small_2000000_x_2.npy")
+vid_surf_x_5 = numpy.load("/Users/mitchellsailsbery/ownCloud/PERCS/Modeling/Python_Plotting/small_2000000_x_5.npy")
+
+plt.rcParams['animation.ffmpeg_path'] = '/Users/mitchellsailsbery/Documents/ffmpeg'
+def function1(i, z1, line):
+    z1 = vid_surf_x_0[(10*i)%20000]
+    ax.clear()
+    line = ax.contourf(x,y,z1,zdir='z',cmap=cm.coolwarm)
+    return line
+
+#def function(i, z1, z3, line):
+    
+
+def function2(i, z2, line):
+    z2 = vid_surf_x_2[(10*i)%20000]
+    ax.clear()
+    line = ax.contourf(x,y,z2,zdir='z',cmap=cm.coolwarm)
+    return line
+
+def function3(i, z3, line):
+    z3 = vid_surf_x_5[(10*i)%20000]
+    ax.clear()
+    line = ax.contourf(x,y,z3,zdir='z',cmap=cm.coolwarm)
+    ax.set_zlim([600,637])
+    ax.set_clim(vmin=600, vmax = 637)
+    return line
+
+#Writer = animation.writers['ffmpeg']
+#writer = Writer(fps=15, metadata=dict(artist='Me'), bitrate=1800)
+
+fig = plt.figure(figsize = (10,10))
+ax = fig.add_subplot(111, projection='3d')
+#ax2 = fig.add_subplot(111, projection='3d')
+#ax3 = fig.add_subplot(111, projection='3d')
+
+
+x = range(0,10,1)
+y = range(0,10,1)
+x,y = np.meshgrid(x,y)
+z1 = vid_surf_x_0[0]
+z2 = vid_surf_x_2[0]
+z3 = vid_surf_x_5[0]
+
+#line1 = ax.contourf(x,y,z1,zdir='z', cmap=cm.coolwarm)
+line = ax.contourf(x,y,z3,zdir='z', cmap=cm.coolwarm)
+
+
+mywriter = animation.FFMpegWriter()
+#ax.plot_surface(x,y,z, cmap =cm.coolwarm)
+#ani = animation.FuncAnimation(fig, function1, fargs = (z1, line), interval = 20, blit = False, frames = 2000)
+ani = animation.FuncAnimation(fig, function3, fargs = (z3, line), interval = 20, blit = False)
+#ani.save('/Users/mitchellsailsbery/ownCloud/PERCS/Modeling/Python_Take_2/model_center.mp4', writer=mywriter)
+plt.show()
