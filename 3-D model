@@ -1,0 +1,323 @@
+import math
+import numpy
+import csv
+import warnings
+import pandas
+
+
+#Reactant Data
+density = 2958
+thermal_conductivity = .5
+Cp = 992
+
+alpha = thermal_conductivity/(density*Cp)
+
+water_input = 637
+
+delta_t = .005
+delta_x = .01
+delta_y = .01
+delta_z = .01
+pipe_radius = .05
+
+density_water_600 = 600
+heat_capacity_water_600 = 6530.2
+
+
+"""
+def update_tank(array1, array2, array3, array4):
+    
+    
+    for layer in array1:
+        
+        for column in layer:
+            
+            for node in column:
+                
+                if node is inside_the_tank:
+                    
+                    do math
+
+    return(new_temperatures_array, change_in_heat_array)
+
+def update_pipe(array1, array2, array3, array4):
+    
+    list_pipe_indices = some_list
+    
+    for pipe_piece in list_pipe_indices:
+        
+        run(pipe_individual_update_function(pipe_piece))
+
+    return(new_temps_array,change_in_heat2_array)
+
+def update_water(csv_ic, change_in_heat_array, change_in_heat2_array, new_conditions_array):
+    
+    list_water_inidices = some_other_list
+    
+    radial_heat_added_by_layer = run(radial_q_added(new_conditions_array, csv_ic_copy, change_in_heat_array, change_in_heat2_array))
+    
+    water_temperature_change = radial_heat_added_by_layer*(heat_to_temperature_conversion)/4
+    
+    new_temps_water_array = temps_array + water_temperature_change
+    
+    return(new_temps_water_array)
+
+def update(csv_ic,...,other_inital_conditions_array, number_of_time_steps):
+    
+    new_conditions_array = csv_ic.copy()
+    
+    new_conditions_array = update_tank(new_conditions_array,...)[0]$
+    
+    new_conditions_array = update_pipe(new_conditions_array,...)
+    
+    new_conditions_array = update_water(new_conditions_array, change_in_heat_array,...)
+    
+    return(new_conditions_array)
+
+
+
+
+
+#Load in initial conditions
+initial_conditions = open("/Users/mitchellsailsbery/ownCloud/PERCS/Modeling/Python_Take_2/small_2d_starting_values.csv")
+csv_ic = csv.reader(initial_conditions)
+array = []
+for row in csv_ic:
+    new_row = []
+    for element in row:
+        new_row.append(float(element))
+    array.append(new_row)
+
+array = numpy.array(array)
+array = numpy.tile(array,(100,1,1))
+
+#Run update desired number of times
+update(array,200)
+"""
+
+#def k_therm(a,b,c):
+    
+    #if:
+        #return(h_water)
+    #if:
+        #return(16.2)
+    #else:
+        #return(thermal_conductivity)
+
+def k_spatial(a,b,c):
+    
+    if ((a==0 and(b==2 or b==7)) or(a==1 and (b==1 or b==8)) or (a==2 and (b==0 or b==9)) or (a==7 and (b==0 or b==9)) or (a==8 and (b==1 or b==8)) or (a==9 and (b==2 or b==7))):
+        
+        return((3*thermal_conductivity+16.2)/4) #304 stainless steel thermal conductivity = 16.2 W/(m*K)
+        
+    else:
+        return(thermal_conductivity)
+
+    
+def k_derivative(a,b,c,temp_array):
+    
+    check = k_spatial(a,b,c)
+    
+    factor = 1
+    if temp_array[c][b][a]>=636.8:
+        factor= -1
+    
+    if check > thermal_conductivity:
+        
+        return(factor*(16.2-thermal_conductivity))
+    
+    else:
+        
+        return(0)
+
+
+def inner_pipe_function(temp_array):
+    almost_fourier_coefficient = delta_t/(density*Cp)
+    
+    shape_array = temp_array.shape[0]
+    
+    error_coordinates = []
+    x_array = numpy.zeros((shape_array,shape_array,shape_array))
+    y_array = numpy.zeros((shape_array,shape_array,shape_array))
+    z_array = numpy.zeros((shape_array,shape_array,shape_array))
+    
+    indices = range(shape_array)
+    
+    for a in indices:
+
+        for b in indices:
+            for c in indices:
+                
+                if a > 0 and b > 0 and c > 0 and a+1 < shape_array and b+1 < shape_array and c+1 < shape_array:#1
+                    
+                    x_array[c][b][a] = (k_derivative(a,b,c,temp_array)*abs(temp_array[c][b][a+1]-temp_array[c][b][a-1]) + k_spatial(a,b,c)*(temp_array[c][b][a+1]+temp_array[c][b][a-1]-2*temp_array[c][b][a]))/(delta_x*delta_x)
+                    y_array[c][b][a] = (k_derivative(a,b,c,temp_array)*abs(temp_array[c][b+1][a]-temp_array[c][b-1][a]) + k_spatial(a,b,c)*(temp_array[c][b+1][a]+temp_array[c][b-1][a]-2*temp_array[c][b][a]))/(delta_y*delta_y)
+                    z_array[c][b][a] = thermal_conductivity*(temp_array[c+1][b][a]+temp_array[c-1][b][a]-2*temp_array[c][b][a])/(delta_z*delta_z)
+                    
+                #x-face
+                elif a==0 and b > 1 and c > 0 and b+2 < shape_array and c+1 < shape_array:#2
+                    
+                    x_array[c][b][a] = thermal_conductivity*(2*temp_array[c][b][a+1]-2*temp_array[c][b][a])/(delta_x*delta_x)
+                    y_array[c][b][a] = (k_derivative(a,b,c,temp_array)*abs(temp_array[c][b+1][a]-temp_array[c][b-1][a]) + k_spatial(a,b,c)*(temp_array[c][b+1][a]+temp_array[c][b-1][a]-2*temp_array[c][b][a]))/(delta_y*delta_y)
+                    z_array[c][b][a] = thermal_conductivity*(temp_array[c+1][b][a]+temp_array[c-1][b][a]-2*temp_array[c][b][a])/(delta_z*delta_z)
+                    
+                    
+                elif a+1==shape_array and b > 1 and c > 0 and b+2 < shape_array and c+1 < shape_array:#3    
+                    
+                    x_array[c][b][a] = thermal_conductivity*(2*temp_array[c][b][a-1]-2*temp_array[c][b][a])/(delta_x*delta_x)        
+                    y_array[c][b][a] = (k_derivative(a,b,c,temp_array)*abs(temp_array[c][b+1][a]-temp_array[c][b-1][a]) + k_spatial(a,b,c)*(temp_array[c][b+1][a]+temp_array[c][b-1][a]-2*temp_array[c][b][a]))/(delta_y*delta_y)
+                    z_array[c][b][a] = thermal_conductivity*(temp_array[c+1][b][a]+temp_array[c-1][b][a]-2*temp_array[c][b][a])/(delta_z*delta_z)
+                    
+                    
+                #y-face
+                elif a > 1 and b == 0 and c > 0 and a+2 < shape_array and c+1 < shape_array:#4
+                    
+                    x_array[c][b][a] = (k_derivative(a,b,c,temp_array)*abs(temp_array[c][b][a+1]-temp_array[c][b][a-1]) + k_spatial(a,b,c)*(temp_array[c][b][a+1]+temp_array[c][b][a-1]-2*temp_array[c][b][a]))/(delta_x*delta_x)
+                    y_array[c][b][a] = thermal_conductivity*(2*temp_array[c][b+1][a]-2*temp_array[c][b][a])/(delta_y*delta_y)
+                    z_array[c][b][a] = thermal_conductivity*(temp_array[c+1][b][a]+temp_array[c-1][b][a]-2*temp_array[c][b][a])/(delta_z*delta_z)
+                    
+                elif a > 1 and b+1 == shape_array and c > 0 and a+2 < shape_array and c+1 < shape_array:#5   
+                    
+                    x_array[c][b][a] = (k_derivative(a,b,c,temp_array)*abs(temp_array[c][b][a+1]-temp_array[c][b][a-1]) + k_spatial(a,b,c)*(temp_array[c][b][a+1]+temp_array[c][b][a-1]-2*temp_array[c][b][a]))/(delta_x*delta_x)
+                    y_array[c][b][a] = thermal_conductivity*(2*temp_array[c][b-1][a]-2*temp_array[c][b][a])/(delta_y*delta_y)                   
+                    z_array[c][b][a] = thermal_conductivity*(temp_array[c+1][b][a]+temp_array[c-1][b][a]-2*temp_array[c][b][a])/(delta_z*delta_z)
+                    
+                #z-face
+                elif a > 0 and b > 0 and c == 0 and a+1 < shape_array and b+1 < shape_array:#6
+                    
+                    x_array[c][b][a] = (k_derivative(a,b,c,temp_array)*abs(temp_array[c][b][a+1]-temp_array[c][b][a-1]) + k_spatial(a,b,c)*(temp_array[c][b][a+1]+temp_array[c][b][a-1]-2*temp_array[c][b][a]))/(delta_x*delta_x)
+                    y_array[c][b][a] = (k_derivative(a,b,c,temp_array)*abs(temp_array[c][b+1][a]-temp_array[c][b-1][a]) + k_spatial(a,b,c)*(temp_array[c][b+1][a]+temp_array[c][b-1][a]-2*temp_array[c][b][a]))/(delta_y*delta_y)
+                    z_array[c][b][a] = thermal_conductivity*(2*temp_array[c+1][b][a]-2*temp_array[c][b][a])/(delta_z*delta_z)
+                    
+                elif a > 0 and b > 0 and a+1 < shape_array and b+1 < shape_array and c+1 == shape_array:#7
+                    
+                    x_array[c][b][a] = (k_derivative(a,b,c,temp_array)*abs(temp_array[c][b][a+1]-temp_array[c][b][a-1]) + k_spatial(a,b,c)*(temp_array[c][b][a+1]+temp_array[c][b][a-1]-2*temp_array[c][b][a]))/(delta_x*delta_x)
+                    y_array[c][b][a] = (k_derivative(a,b,c,temp_array)*abs(temp_array[c][b+1][a]-temp_array[c][b-1][a]) + k_spatial(a,b,c)*(temp_array[c][b+1][a]+temp_array[c][b-1][a]-2*temp_array[c][b][a]))/(delta_y*delta_y)
+                    z_array[c][b][a] = thermal_conductivity*(2*temp_array[c-1][b][a]-2*temp_array[c][b][a])/(delta_z*delta_z)
+                  
+                #x-edges
+                elif a==0 and b > 1 and b+2 < shape_array and c+1==shape_array:#8
+                    
+                    x_array[c][b][a] = thermal_conductivity*(2*temp_array[c][b][a+1]-2*temp_array[c][b][a])/(delta_x*delta_x)
+                    y_array[c][b][a] = (k_derivative(a,b,c,temp_array)*abs(temp_array[c][b+1][a]-temp_array[c][b-1][a]) + k_spatial(a,b,c)*(temp_array[c][b+1][a]+temp_array[c][b-1][a]-2*temp_array[c][b][a]))/(delta_y*delta_y)
+                    z_array[c][b][a] = thermal_conductivity*(2*temp_array[c-1][b][a]-2*temp_array[c][b][a])/(delta_z*delta_z)
+                    
+                elif a==0 and b > 1 and b+2 < shape_array and c==0:#9
+                    
+                    x_array[c][b][a] = thermal_conductivity*(2*temp_array[c][b][a+1]-2*temp_array[c][b][a])/(delta_x*delta_x)
+                    y_array[c][b][a] = (k_derivative(a,b,c,temp_array)*abs(temp_array[c][b+1][a]-temp_array[c][b-1][a]) + k_spatial(a,b,c)*(temp_array[c][b+1][a]+temp_array[c][b-1][a]-2*temp_array[c][b][a]))/(delta_y*delta_y)
+                    z_array[c][b][a] = thermal_conductivity*(2*temp_array[c+1][b][a]-2*temp_array[c][b][a])/(delta_z*delta_z)
+                    
+                elif a+1==shape_array and b>1 and b+2< shape_array and c+1==shape_array:#10
+                    
+                    x_array[c][b][a] = thermal_conductivity*(2*temp_array[c][b][a-1]-2*temp_array[c][b][a])/(delta_x*delta_x)
+                    y_array[c][b][a] = (k_derivative(a,b,c,temp_array)*abs(temp_array[c][b+1][a]-temp_array[c][b-1][a]) + k_spatial(a,b,c)*(temp_array[c][b+1][a]+temp_array[c][b-1][a]-2*temp_array[c][b][a]))/(delta_y*delta_y)
+                    z_array[c][b][a] = thermal_conductivity*(2*temp_array[c-1][b][a]-2*temp_array[c][b][a])/(delta_z*delta_z)
+                    
+
+                elif a+1==shape_array and b>1 and b+2< shape_array and c==0:#11
+                    
+                    x_array[c][b][a] = thermal_conductivity*(2*temp_array[c][b][a-1]-2*temp_array[c][b][a])/(delta_x*delta_x)
+                    y_array[c][b][a] = (k_derivative(a,b,c,temp_array)*abs(temp_array[c][b+1][a]-temp_array[c][b-1][a]) + k_spatial(a,b,c)*(temp_array[c][b+1][a]+temp_array[c][b-1][a]-2*temp_array[c][b][a]))/(delta_y*delta_y)
+                    z_array[c][b][a] = thermal_conductivity*(2*temp_array[c+1][b][a]-2*temp_array[c][b][a])/(delta_z*delta_z)
+                    
+
+                #y-edges
+                elif a > 1 and b==0 and a+2<shape_array and c+1==shape_array:#12
+                    
+                    x_array[c][b][a] = (k_derivative(a,b,c,temp_array)*abs(temp_array[c][b][a+1]-temp_array[c][b][a-1]) + k_spatial(a,b,c)*(temp_array[c][b][a+1]+temp_array[c][b][a-1]-2*temp_array[c][b][a]))/(delta_x*delta_x)
+                    y_array[c][b][a] = thermal_conductivity*(2*temp_array[c][b+1][a]-2*temp_array[c][b][a])/(delta_y*delta_y)
+                    z_array[c][b][a] = thermal_conductivity*(2*temp_array[c-1][b][a]-2*temp_array[c][b][a])/(delta_z*delta_z)
+                    
+
+                elif a > 1 and b==0 and a+2<shape_array and c==0:#13
+                    
+                    x_array[c][b][a] = (k_derivative(a,b,c,temp_array)*abs(temp_array[c][b][a+1]-temp_array[c][b][a-1]) + k_spatial(a,b,c)*(temp_array[c][b][a+1]+temp_array[c][b][a-1]-2*temp_array[c][b][a]))/(delta_x*delta_x)
+                    y_array[c][b][a] = thermal_conductivity*(2*temp_array[c][b+1][a]-2*temp_array[c][b][a])/(delta_y*delta_y)
+                    z_array[c][b][a] = thermal_conductivity*(2*temp_array[c+1][b][a]-2*temp_array[c][b][a])/(delta_z*delta_z)
+                    
+                elif a > 1 and b+1==shape_array and a+2<shape_array and c+1==shape_array:#14
+                    
+                    x_array[c][b][a] = (k_derivative(a,b,c,temp_array)*abs(temp_array[c][b][a+1]-temp_array[c][b][a-1]) + k_spatial(a,b,c)*(temp_array[c][b][a+1]+temp_array[c][b][a-1]-2*temp_array[c][b][a]))/(delta_x*delta_x)
+                    y_array[c][b][a] = thermal_conductivity*(2*temp_array[c][b-1][a]-2*temp_array[c][b][a])/(delta_y*delta_y)
+                    z_array[c][b][a] = thermal_conductivity*(2*temp_array[c-1][b][a]-2*temp_array[c][b][a])/(delta_z*delta_z)
+                    
+                elif a > 1 and b+1==shape_array and a+2<shape_array and c==0:#15
+                    
+                    x_array[c][b][a] = (k_derivative(a,b,c,temp_array)*abs(temp_array[c][b][a+1]-temp_array[c][b][a-1]) + k_spatial(a,b,c)*(temp_array[c][b][a+1]+temp_array[c][b][a-1]-2*temp_array[c][b][a]))/(delta_x*delta_x)
+                    y_array[c][b][a] = thermal_conductivity*(2*temp_array[c][b-1][a]-2*temp_array[c][b][a])/(delta_y*delta_y)
+                    z_array[c][b][a] = thermal_conductivity*(2*temp_array[c+1][b][a]-2*temp_array[c][b][a])/(delta_z*delta_z)
+                    
+                
+    
+    #Reindex array to obtain the 6 adjacent arrays?
+    
+    #for loop over all 3 indices?
+    
+    
+    
+    
+    
+    new_temp_array = temp_array + almost_fourier_coefficient*(x_array + y_array + z_array)
+    
+    return(new_temp_array)
+    #return(change_in_heat)
+
+
+    #Reset water
+    #new_temp_array[0,0,:] = temp_array[0,0,:]
+    #new_temp_array[0,-1,:] = temp_array[0,-1,:]
+    #new_temp_array[-1,0,:] = temp_array[-1,0,:]
+    #new_temp_array[-1,-1,:] = temp_array[-1,-1,:]
+
+#Output update to a new csv file
+initial_conditions = open("/Users/mitchellsailsbery/ownCloud/PERCS/Modeling/Python_Take_2/small_2d_starting_test_values.csv")
+csv_ic = csv.reader(initial_conditions)
+array = []
+for row in csv_ic:
+    new_row = []
+    for element in row:
+        new_row.append(float(element))
+    array.append(new_row)
+
+array = numpy.array(array)
+array = numpy.tile(array,(10,1,1))
+
+"""
+initial_theta = open("/Users/mitchellsailsbery/ownCloud/PERCS/Modeling/Python_Take_2/small_2d_theta_values.csv")
+csv_it = csv.reader(initial_theta)
+theta = []
+for row in csv_it:
+    new_row = []
+    for element in row:
+        new_row.append(float(element))
+    theta.append(new_row)
+    
+theta = numpy.array(theta)
+theta = numpy.tile(theta,(10,1,1))
+"""
+
+print(array)
+#print(theta)
+#print(inner_pipe_function(array,theta)-array)
+
+vid_surf_x_0 = []
+vid_surf_x_2 = []
+vid_surf_x_5 = []
+
+counter = 0
+title = numpy.copy(array)
+while counter < 20000:
+    
+    title = numpy.copy(inner_pipe_function(title))
+    
+    counter += 1
+    if counter % 100 ==0:
+        vid_surf_x_0.append(title[:,:,0])
+        vid_surf_x_2.append(title[:,:,2])
+        vid_surf_x_5.append(title[:,:,5])
+print(title)
+
+#for sufrace plot
+#create three storage arrays that store the y,z, and T values on the surfaces x = 0 , x = 2 and x = 5 for specified t values.
+#Feed that into the animator 
