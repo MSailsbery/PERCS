@@ -81,6 +81,7 @@ def inner_pipe_function(temp_array,alpha_array):
     density_array = (1-copy_alpha_array)*density+copy_alpha_array*density_product
     Cp_array = (1-copy_alpha_array)*Cp+copy_alpha_array*Cp_product
     
+    
     coefficient_array = delta_t/(density_array*Cp_array)
     
     shape_array = temp_array.shape[0]
@@ -92,7 +93,16 @@ def inner_pipe_function(temp_array,alpha_array):
     indices = range(shape_array)
     
     for a in indices:
-
+        for b in indices:
+            for c in indices:
+                
+                answer = not_tank(c,b,a)
+                if answer == True:
+                    thermal_array[c][b][a] = 18
+                    density_array[c][b][a] = 8030
+                    Cp_array[c][b][a] = 500
+    
+    for a in indices:
         for b in indices:
             for c in indices:
                 
@@ -239,7 +249,7 @@ reacted_list = []
 counter = 0
 title = numpy.copy(array)
 copy_alpha = numpy.copy(initial_alpha_array)
-while counter < 1009:
+while counter < 2000:
     
     interim = reaction_update(title,copy_alpha)
     title = interim[0]
@@ -253,7 +263,6 @@ while counter < 1009:
         vid_surf_x_5.append(title[:,:,5])
         if counter %1000 == 0:
             reacted_list.append(copy_alpha[4,:,:])
-print(title)
-
-
+            #print(title[0][:][:])
+print(title)            
 
