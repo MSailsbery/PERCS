@@ -1,0 +1,801 @@
+import numpy
+import csv
+from iapws import IAPWS97
+
+#Reactant Data
+density = 2958
+thermal_conductivity = .5
+Cp = 1304
+heat_of_reaction = 1207.47 #kJ/kg
+
+#Product Data
+density_product = 3580
+Cp_product = 937.8
+thermal_conductivity_product = 45
+
+temp_over_time = []
+
+
+water_input = 637
+
+delta_t = .01
+delta_x = .01
+delta_y = .01
+delta_z = .01
+pipe_radius = .05
+
+density_water_600 = 600
+heat_capacity_water_600 = 6530.2
+
+weight_cell = delta_x*delta_y*delta_z*density
+weight_cell_end = delta_x*delta_y*delta_z*density_product
+
+
+#Steam
+#density_steam_700 = 60.58 kg/m^3
+#Cp_steam_700 = 3675 J/(kg*K)
+
+velocity = 1 #m/s
+pipe_diameter = .0853 #m
+pipe_pressure = 15.513 #MPa
+
+#Specs for stainless steel 304
+pipe_density = 8030
+pipe_Cp = 500 #J/(kg*K)
+
+def not_tank(c,b,a):
+    
+    answer = False
+    if (a+b)<2:
+        answer = True
+    if (a == 0 and (b == 8 or b == 9)) or (a == 1 and (b == 0 or b == 9)):
+        answer = True
+    if (a == 8 and (b == 0 or b == 9)) or (a == 9 and (b == 0 or b == 1 or b == 8 or b == 9)):
+        answer = True
+    return(answer)    
+  
+def reaction_update(temp_array, alpha_array):
+    
+    output_array = numpy.copy(temp_array)
+    new_alpha = numpy.copy(alpha_array)
+    
+    indices = range(temp_array.shape[0])
+    
+    for a in indices:
+        for b in indices:
+            for c in indices:
+                boolean = not_tank(c,b,a)
+                if output_array[c][b][a] > 623.15 and boolean == False:
+                    rate = delta_t*((1-new_alpha[c][b][a])**(.6667))*2000000*(2.718**(-140.16/(.008314*output_array[c][b][a])))
+                    weight_reacted = .95*rate*weight_cell
+                    heat_removed = heat_of_reaction*weight_reacted
+                    new_mass = weight_cell_end*new_alpha[c][b][a]+weight_cell*(1-new_alpha[c][b][a])
+                    new_Cp = Cp_product*new_alpha[c][b][a]+Cp*(1-new_alpha[c][b][a])
+                    output_array[c][b][a] = output_array[c][b][a]-heat_removed/(new_mass*new_Cp)
+                    
+                    new_alpha[c][b][a] = new_alpha[c][b][a] + rate
+                    
+                    
+    return(output_array,new_alpha)
+
+def inner_pipe_function(temp_array,alpha_array):
+    
+    copy_alpha_array = numpy.copy(alpha_array)
+    copy_temp_array = numpy.copy(temp_array)
+    
+    thermal_array = (1-copy_alpha_array)*thermal_conductivity+copy_alpha_array*thermal_conductivity_product
+    density_array = (1-copy_alpha_array)*density+copy_alpha_array*density_product
+    Cp_array = (1-copy_alpha_array)*Cp+copy_alpha_array*Cp_product
+    
+    
+    coefficient_array = delta_t/(density_array*Cp_array)
+    
+    shape_array = temp_array.shape[0]
+    
+    x_array = numpy.zeros((shape_array,shape_array,shape_array))
+    y_array = numpy.zeros((shape_array,shape_array,shape_array))
+    z_array = numpy.zeros((shape_array,shape_array,shape_array))
+    
+    indices = range(shape_array)
+    
+    for a in indices:
+        for b in indices:
+            for c in indices:
+                
+                answer = not_tank(c,b,a)
+                if answer == True:
+                    thermal_array[c][b][a] = 18
+                    density_array[c][b][a] = 8030
+                    Cp_array[c][b][a] = 500
+    
+    for a in indices:
+        for b in indices:
+            for c in indices:
+                
+                if a > 0 and b > 0 and c > 0 and a+1 < shape_array and b+1 < shape_array and c+1 < shape_array:#1
+                    
+                    x_array[c][b][a] = ((thermal_array[c][b][a-1]+thermal_array[c][b][a])*(temp_array[c][b][a-1]-temp_array[c][b][a])-(thermal_array[c][b][a]+thermal_array[c][b][a+1])*(temp_array[c][b][a]-temp_array[c][b][a+1]))/(2*delta_x*delta_x)
+                    y_array[c][b][a] = ((thermal_array[c][b-1][a]+thermal_array[c][b][a])*(temp_array[c][b-1][a]-temp_array[c][b][a])-(thermal_array[c][b][a]+thermal_array[c][b+1][a])*(temp_array[c][b][a]-temp_array[c][b+1][a]))/(2*delta_y*delta_y)
+                    z_array[c][b][a] = ((thermal_array[c-1][b][a]+thermal_array[c][b][a])*(temp_array[c-1][b][a]-temp_array[c][b][a])-(thermal_array[c][b][a]+thermal_array[c+1][b][a])*(temp_array[c][b][a]-temp_array[c+1][b][a]))/(2*delta_z*delta_z)
+                    
+                    
+                    #x_array[c][b][a] = .25*((thermal_array[c][b][a-1]-thermal_array[c][b][a+1])*(temp_array[c][b][a-1]-temp_array[c][b][a+1]) + thermal_array[c][b][a]*(temp_array[c][b][a+1]+temp_array[c][b][a-1]-2*temp_array[c][b][a]))/(delta_x*delta_x)
+                    #y_array[c][b][a] = .25*((thermal_array[c][b-1][a]-thermal_array[c][b+1][a])*(temp_array[c][b-1][a]-temp_array[c][b+1][a]) + thermal_array[c][b][a]*(temp_array[c][b+1][a]+temp_array[c][b-1][a]-2*temp_array[c][b][a]))/(delta_y*delta_y)
+                    #z_array[c][b][a] = .25*((thermal_array[c-1][b][a]-thermal_array[c+1][b][a])*(temp_array[c-1][b][a]-temp_array[c+1][b][a]) + thermal_array[c][b][a]*(temp_array[c+1][b][a]+temp_array[c-1][b][a]-2*temp_array[c][b][a]))/(delta_z*delta_z)
+                    
+                #x-faces
+                #x = 0
+                elif a==0 and b > 1 and c > 0 and b+2 < shape_array and c+1 < shape_array:#2
+                    
+                    x_array[c][b][a] = (-(thermal_array[c][b][a]+thermal_array[c][b][a+1])*(temp_array[c][b][a]-temp_array[c][b][a+1]))/(2*delta_x*delta_x)
+                    y_array[c][b][a] = ((thermal_array[c][b-1][a]+thermal_array[c][b][a])*(temp_array[c][b-1][a]-temp_array[c][b][a])-(thermal_array[c][b][a]+thermal_array[c][b+1][a])*(temp_array[c][b][a]-temp_array[c][b+1][a]))/(2*delta_y*delta_y)
+                    z_array[c][b][a] = ((thermal_array[c-1][b][a]+thermal_array[c][b][a])*(temp_array[c-1][b][a]-temp_array[c][b][a])-(thermal_array[c][b][a]+thermal_array[c+1][b][a])*(temp_array[c][b][a]-temp_array[c+1][b][a]))/(2*delta_z*delta_z)
+                    
+                    #x_array[c][b][a] = ((thermal_array[c][b][a]-thermal_array[c][b][a+1])*(temp_array[c][b][a]-temp_array[c][b][a+1]) + thermal_array[c][b][a]*(2*temp_array[c][b][a+1]-2*temp_array[c][b][a]))/(delta_x*delta_x)
+                    #y_array[c][b][a] = .25*((thermal_array[c][b-1][a]-thermal_array[c][b+1][a])*(temp_array[c][b-1][a]-temp_array[c][b+1][a]) + thermal_array[c][b][a]*(temp_array[c][b+1][a]+temp_array[c][b-1][a]-2*temp_array[c][b][a]))/(delta_y*delta_y)
+                    #z_array[c][b][a] = .25*((thermal_array[c-1][b][a]-thermal_array[c+1][b][a])*(temp_array[c-1][b][a]-temp_array[c+1][b][a]) + thermal_array[c][b][a]*(temp_array[c+1][b][a]+temp_array[c-1][b][a]-2*temp_array[c][b][a]))/(delta_z*delta_z)
+                    
+                #x = 9    
+                elif a+1==shape_array and b > 1 and c > 0 and b+2 < shape_array and c+1 < shape_array:#3    
+                    
+                    x_array[c][b][a] = ((thermal_array[c][b][a-1]+thermal_array[c][b][a])*(temp_array[c][b][a-1]-temp_array[c][b][a]))/(2*delta_x*delta_x)
+                    y_array[c][b][a] = ((thermal_array[c][b-1][a]+thermal_array[c][b][a])*(temp_array[c][b-1][a]-temp_array[c][b][a])-(thermal_array[c][b][a]+thermal_array[c][b+1][a])*(temp_array[c][b][a]-temp_array[c][b+1][a]))/(2*delta_y*delta_y)
+                    z_array[c][b][a] = ((thermal_array[c-1][b][a]+thermal_array[c][b][a])*(temp_array[c-1][b][a]-temp_array[c][b][a])-(thermal_array[c][b][a]+thermal_array[c+1][b][a])*(temp_array[c][b][a]-temp_array[c+1][b][a]))/(2*delta_z*delta_z)
+                    
+                    #x_array[c][b][a] = ((thermal_array[c][b][a-1]-thermal_array[c][b][a])*(temp_array[c][b][a-1]-temp_array[c][b][a]) + thermal_array[c][b][a]*(2*temp_array[c][b][a-1]-2*temp_array[c][b][a]))/(delta_x*delta_x)        
+                    #y_array[c][b][a] = .25*((thermal_array[c][b-1][a]-thermal_array[c][b+1][a])*(temp_array[c][b-1][a]-temp_array[c][b+1][a]) + thermal_array[c][b][a]*(temp_array[c][b+1][a]+temp_array[c][b-1][a]-2*temp_array[c][b][a]))/(delta_y*delta_y)
+                    #z_array[c][b][a] = .25*((thermal_array[c-1][b][a]-thermal_array[c+1][b][a])*(temp_array[c-1][b][a]-temp_array[c+1][b][a]) + thermal_array[c][b][a]*(temp_array[c+1][b][a]+temp_array[c-1][b][a]-2*temp_array[c][b][a]))/(delta_z*delta_z)
+                    
+                    
+                #y-faces
+                #y = 0
+                elif a > 1 and b == 0 and c > 0 and a+2 < shape_array and c+1 < shape_array:#4
+                    
+                    x_array[c][b][a] = ((thermal_array[c][b][a-1]+thermal_array[c][b][a])*(temp_array[c][b][a-1]-temp_array[c][b][a])-(thermal_array[c][b][a]+thermal_array[c][b][a+1])*(temp_array[c][b][a]-temp_array[c][b][a+1]))/(2*delta_x*delta_x)
+                    y_array[c][b][a] = (-(thermal_array[c][b][a]+thermal_array[c][b+1][a])*(temp_array[c][b][a]-temp_array[c][b+1][a]))/(2*delta_y*delta_y)
+                    z_array[c][b][a] = ((thermal_array[c-1][b][a]+thermal_array[c][b][a])*(temp_array[c-1][b][a]-temp_array[c][b][a])-(thermal_array[c][b][a]+thermal_array[c+1][b][a])*(temp_array[c][b][a]-temp_array[c+1][b][a]))/(2*delta_z*delta_z)
+                    
+                    #x_array[c][b][a] = .25*((thermal_array[c][b][a-1]-thermal_array[c][b][a+1])*(temp_array[c][b][a-1]-temp_array[c][b][a+1]) + thermal_array[c][b][a]*(temp_array[c][b][a+1]+temp_array[c][b][a-1]-2*temp_array[c][b][a]))/(delta_x*delta_x)
+                    #y_array[c][b][a] = ((thermal_array[c][b][a]-thermal_array[c][b+1][a])*(temp_array[c][b][a]-temp_array[c][b+1][a]) + thermal_array[c][b][a]*(2*temp_array[c][b+1][a]-2*temp_array[c][b][a]))/(delta_y*delta_y)
+                    #z_array[c][b][a] = .25*((thermal_array[c-1][b][a]-thermal_array[c+1][b][a])*(temp_array[c-1][b][a]-temp_array[c+1][b][a]) + thermal_array[c][b][a]*(temp_array[c+1][b][a]+temp_array[c-1][b][a]-2*temp_array[c][b][a]))/(delta_z*delta_z)
+                    
+                #y = 9    
+                elif a > 1 and b+1 == shape_array and c > 0 and a+2 < shape_array and c+1 < shape_array:#5   
+                    
+                    x_array[c][b][a] = ((thermal_array[c][b][a-1]+thermal_array[c][b][a])*(temp_array[c][b][a-1]-temp_array[c][b][a])-(thermal_array[c][b][a]+thermal_array[c][b][a+1])*(temp_array[c][b][a]-temp_array[c][b][a+1]))/(2*delta_x*delta_x)
+                    y_array[c][b][a] = ((thermal_array[c][b-1][a]+thermal_array[c][b][a])*(temp_array[c][b-1][a]-temp_array[c][b][a]))/(2*delta_y*delta_y)
+                    z_array[c][b][a] = ((thermal_array[c-1][b][a]+thermal_array[c][b][a])*(temp_array[c-1][b][a]-temp_array[c][b][a])-(thermal_array[c][b][a]+thermal_array[c+1][b][a])*(temp_array[c][b][a]-temp_array[c+1][b][a]))/(2*delta_z*delta_z)
+                    
+                    #x_array[c][b][a] = .25*((thermal_array[c][b][a-1]-thermal_array[c][b][a+1])*(temp_array[c][b][a-1]-temp_array[c][b][a+1]) + thermal_array[c][b][a]*(temp_array[c][b][a+1]+temp_array[c][b][a-1]-2*temp_array[c][b][a]))/(delta_x*delta_x)
+                    #y_array[c][b][a] = ((thermal_array[c][b-1][a]-thermal_array[c][b][a])*(temp_array[c][b-1][a]-temp_array[c][b][a]) + thermal_array[c][b][a]*(2*temp_array[c][b-1][a]-2*temp_array[c][b][a]))/(delta_y*delta_y)              
+                    #z_array[c][b][a] = .25*((thermal_array[c-1][b][a]-thermal_array[c+1][b][a])*(temp_array[c-1][b][a]-temp_array[c+1][b][a]) + thermal_array[c][b][a]*(temp_array[c+1][b][a]+temp_array[c-1][b][a]-2*temp_array[c][b][a]))/(delta_z*delta_z)
+                    
+                #z-faces
+                #z = 0
+                elif a > 0 and b > 0 and c == 0 and a+1 < shape_array and b+1 < shape_array:#6
+                    
+                    x_array[c][b][a] = ((thermal_array[c][b][a-1]+thermal_array[c][b][a])*(temp_array[c][b][a-1]-temp_array[c][b][a])-(thermal_array[c][b][a]+thermal_array[c][b][a+1])*(temp_array[c][b][a]-temp_array[c][b][a+1]))/(2*delta_x*delta_x)
+                    y_array[c][b][a] = ((thermal_array[c][b-1][a]+thermal_array[c][b][a])*(temp_array[c][b-1][a]-temp_array[c][b][a])-(thermal_array[c][b][a]+thermal_array[c][b+1][a])*(temp_array[c][b][a]-temp_array[c][b+1][a]))/(2*delta_y*delta_y)
+                    z_array[c][b][a] = (-(thermal_array[c][b][a]+thermal_array[c+1][b][a])*(temp_array[c][b][a]-temp_array[c+1][b][a]))/(2*delta_z*delta_z)
+                    
+                    #x_array[c][b][a] = .25*((thermal_array[c][b][a-1]-thermal_array[c][b][a+1])*(temp_array[c][b][a-1]-temp_array[c][b][a+1]) + thermal_array[c][b][a]*(temp_array[c][b][a+1]+temp_array[c][b][a-1]-2*temp_array[c][b][a]))/(delta_x*delta_x)
+                    #y_array[c][b][a] = .25*((thermal_array[c][b-1][a]-thermal_array[c][b+1][a])*(temp_array[c][b-1][a]-temp_array[c][b+1][a]) + thermal_array[c][b][a]*(temp_array[c][b+1][a]+temp_array[c][b-1][a]-2*temp_array[c][b][a]))/(delta_y*delta_y)
+                    #z_array[c][b][a] = ((thermal_array[c][b][a]-thermal_array[c+1][b][a])*(temp_array[c][b][a]-temp_array[c+1][b][a]) + thermal_array[c][b][a]*(2*temp_array[c+1][b][a]-2*temp_array[c][b][a]))/(delta_z*delta_z) 
+                #z = 9    
+                elif a > 0 and b > 0 and a+1 < shape_array and b+1 < shape_array and c+1 == shape_array:#7
+                    
+                    x_array[c][b][a] = ((thermal_array[c][b][a-1]+thermal_array[c][b][a])*(temp_array[c][b][a-1]-temp_array[c][b][a])-(thermal_array[c][b][a]+thermal_array[c][b][a+1])*(temp_array[c][b][a]-temp_array[c][b][a+1]))/(2*delta_x*delta_x)
+                    y_array[c][b][a] = ((thermal_array[c][b-1][a]+thermal_array[c][b][a])*(temp_array[c][b-1][a]-temp_array[c][b][a])-(thermal_array[c][b][a]+thermal_array[c][b+1][a])*(temp_array[c][b][a]-temp_array[c][b+1][a]))/(2*delta_y*delta_y)
+                    z_array[c][b][a] = ((thermal_array[c-1][b][a]+thermal_array[c][b][a])*(temp_array[c-1][b][a]-temp_array[c][b][a]))/(2*delta_z*delta_z)
+                    
+                    #x_array[c][b][a] = .25*((thermal_array[c][b][a-1]-thermal_array[c][b][a+1])*(temp_array[c][b][a-1]-temp_array[c][b][a+1]) + thermal_array[c][b][a]*(temp_array[c][b][a+1]+temp_array[c][b][a-1]-2*temp_array[c][b][a]))/(delta_x*delta_x)
+                    #y_array[c][b][a] = .25*((thermal_array[c][b-1][a]-thermal_array[c][b+1][a])*(temp_array[c][b-1][a]-temp_array[c][b+1][a]) + thermal_array[c][b][a]*(temp_array[c][b+1][a]+temp_array[c][b-1][a]-2*temp_array[c][b][a]))/(delta_y*delta_y)
+                    #z_array[c][b][a] = ((thermal_array[c-1][b][a]-thermal_array[c][b][a])*(temp_array[c-1][b][a]-temp_array[c][b][a]) + thermal_array[c][b][a]*(2*temp_array[c-1][b][a]-2*temp_array[c][b][a]))/(delta_z*delta_z) 
+                  
+                #x-edges
+                elif a==0 and b > 1 and b+2 < shape_array and c+1==shape_array:#8
+                    
+                    x_array[c][b][a] = (-(thermal_array[c][b][a]+thermal_array[c][b][a+1])*(temp_array[c][b][a]-temp_array[c][b][a+1]))/(2*delta_x*delta_x)
+                    y_array[c][b][a] = ((thermal_array[c][b-1][a]+thermal_array[c][b][a])*(temp_array[c][b-1][a]-temp_array[c][b][a])-(thermal_array[c][b][a]+thermal_array[c][b+1][a])*(temp_array[c][b][a]-temp_array[c][b+1][a]))/(2*delta_y*delta_y)
+                    z_array[c][b][a] = ((thermal_array[c-1][b][a]+thermal_array[c][b][a])*(temp_array[c-1][b][a]-temp_array[c][b][a]))/(2*delta_z*delta_z)
+                    
+                    #x_array[c][b][a] = ((thermal_array[c][b][a]-thermal_array[c][b][a+1])*(temp_array[c][b][a]-temp_array[c][b][a+1]) + thermal_array[c][b][a]*(2*temp_array[c][b][a+1]-2*temp_array[c][b][a]))/(delta_x*delta_x)
+                    #y_array[c][b][a] = .25*((thermal_array[c][b-1][a]-thermal_array[c][b+1][a])*(temp_array[c][b-1][a]-temp_array[c][b+1][a]) + thermal_array[c][b][a]*(temp_array[c][b+1][a]+temp_array[c][b-1][a]-2*temp_array[c][b][a]))/(delta_y*delta_y)
+                    #z_array[c][b][a] = ((thermal_array[c-1][b][a]-thermal_array[c][b][a])*(temp_array[c-1][b][a]-temp_array[c][b][a]) + thermal_array[c][b][a]*(2*temp_array[c-1][b][a]-2*temp_array[c][b][a]))/(delta_z*delta_z) 
+                    
+                elif a==0 and b > 1 and b+2 < shape_array and c==0:#9
+                    
+                    x_array[c][b][a] = (-(thermal_array[c][b][a]+thermal_array[c][b][a+1])*(temp_array[c][b][a]-temp_array[c][b][a+1]))/(2*delta_x*delta_x)
+                    y_array[c][b][a] = ((thermal_array[c][b-1][a]+thermal_array[c][b][a])*(temp_array[c][b-1][a]-temp_array[c][b][a])-(thermal_array[c][b][a]+thermal_array[c][b+1][a])*(temp_array[c][b][a]-temp_array[c][b+1][a]))/(2*delta_y*delta_y)
+                    z_array[c][b][a] = (-(thermal_array[c][b][a]+thermal_array[c+1][b][a])*(temp_array[c][b][a]-temp_array[c+1][b][a]))/(2*delta_z*delta_z)
+                    
+                    #x_array[c][b][a] = ((thermal_array[c][b][a]-thermal_array[c][b][a+1])*(temp_array[c][b][a]-temp_array[c][b][a+1]) + thermal_array[c][b][a]*(2*temp_array[c][b][a+1]-2*temp_array[c][b][a]))/(delta_x*delta_x)
+                    #y_array[c][b][a] = .25*((thermal_array[c][b-1][a]-thermal_array[c][b+1][a])*(temp_array[c][b-1][a]-temp_array[c][b+1][a]) + thermal_array[c][b][a]*(temp_array[c][b+1][a]+temp_array[c][b-1][a]-2*temp_array[c][b][a]))/(delta_y*delta_y)
+                    #z_array[c][b][a] = ((thermal_array[c][b][a]-thermal_array[c+1][b][a])*(temp_array[c][b][a]-temp_array[c+1][b][a]) + thermal_array[c][b][a]*(2*temp_array[c+1][b][a]-2*temp_array[c][b][a]))/(delta_z*delta_z)
+                    
+                elif a+1==shape_array and b>1 and b+2< shape_array and c+1==shape_array:#10
+                    
+                    x_array[c][b][a] = ((thermal_array[c][b][a-1]+thermal_array[c][b][a])*(temp_array[c][b][a-1]-temp_array[c][b][a]))/(2*delta_x*delta_x)
+                    y_array[c][b][a] = ((thermal_array[c][b-1][a]+thermal_array[c][b][a])*(temp_array[c][b-1][a]-temp_array[c][b][a])-(thermal_array[c][b][a]+thermal_array[c][b+1][a])*(temp_array[c][b][a]-temp_array[c][b+1][a]))/(2*delta_y*delta_y)
+                    z_array[c][b][a] = ((thermal_array[c-1][b][a]+thermal_array[c][b][a])*(temp_array[c-1][b][a]-temp_array[c][b][a]))/(2*delta_z*delta_z)
+                    
+                    #x_array[c][b][a] = ((thermal_array[c][b][a-1]-thermal_array[c][b][a])*(temp_array[c][b][a-1]-temp_array[c][b][a]) + thermal_array[c][b][a]*(2*temp_array[c][b][a-1]-2*temp_array[c][b][a]))/(delta_x*delta_x)  
+                    #y_array[c][b][a] = .25*((thermal_array[c][b-1][a]-thermal_array[c][b+1][a])*(temp_array[c][b-1][a]-temp_array[c][b+1][a]) + thermal_array[c][b][a]*(temp_array[c][b+1][a]+temp_array[c][b-1][a]-2*temp_array[c][b][a]))/(delta_y*delta_y)
+                    #z_array[c][b][a] = ((thermal_array[c-1][b][a]-thermal_array[c][b][a])*(temp_array[c-1][b][a]-temp_array[c][b][a]) + thermal_array[c][b][a]*(2*temp_array[c-1][b][a]-2*temp_array[c][b][a]))/(delta_z*delta_z) 
+                    
+
+                elif a+1==shape_array and b>1 and b+2< shape_array and c==0:#11
+                    
+                    x_array[c][b][a] = ((thermal_array[c][b][a-1]+thermal_array[c][b][a])*(temp_array[c][b][a-1]-temp_array[c][b][a]))/(2*delta_x*delta_x)
+                    y_array[c][b][a] = ((thermal_array[c][b-1][a]+thermal_array[c][b][a])*(temp_array[c][b-1][a]-temp_array[c][b][a])-(thermal_array[c][b][a]+thermal_array[c][b+1][a])*(temp_array[c][b][a]-temp_array[c][b+1][a]))/(2*delta_y*delta_y)
+                    z_array[c][b][a] = (-(thermal_array[c][b][a]+thermal_array[c+1][b][a])*(temp_array[c][b][a]-temp_array[c+1][b][a]))/(2*delta_z*delta_z)
+                    
+                    #x_array[c][b][a] = ((thermal_array[c][b][a-1]-thermal_array[c][b][a])*(temp_array[c][b][a-1]-temp_array[c][b][a]) + thermal_array[c][b][a]*(2*temp_array[c][b][a-1]-2*temp_array[c][b][a]))/(delta_x*delta_x)  
+                    #y_array[c][b][a] = .25*((thermal_array[c][b-1][a]-thermal_array[c][b+1][a])*(temp_array[c][b-1][a]-temp_array[c][b+1][a]) + thermal_array[c][b][a]*(temp_array[c][b+1][a]+temp_array[c][b-1][a]-2*temp_array[c][b][a]))/(delta_y*delta_y)
+                    #z_array[c][b][a] = ((thermal_array[c][b][a]-thermal_array[c+1][b][a])*(temp_array[c][b][a]-temp_array[c+1][b][a]) + thermal_array[c][b][a]*(2*temp_array[c+1][b][a]-2*temp_array[c][b][a]))/(delta_z*delta_z)
+                    
+
+                #y-edges
+                elif a > 1 and b==0 and a+2<shape_array and c+1==shape_array:#12
+                    
+                    x_array[c][b][a] = ((thermal_array[c][b][a-1]+thermal_array[c][b][a])*(temp_array[c][b][a-1]-temp_array[c][b][a])-(thermal_array[c][b][a]+thermal_array[c][b][a+1])*(temp_array[c][b][a]-temp_array[c][b][a+1]))/(2*delta_x*delta_x)
+                    y_array[c][b][a] = (-(thermal_array[c][b][a]+thermal_array[c][b+1][a])*(temp_array[c][b][a]-temp_array[c][b+1][a]))/(2*delta_y*delta_y)
+                    z_array[c][b][a] = ((thermal_array[c-1][b][a]+thermal_array[c][b][a])*(temp_array[c-1][b][a]-temp_array[c][b][a]))/(2*delta_z*delta_z)
+                    
+                    #x_array[c][b][a] = .25*((thermal_array[c][b][a-1]-thermal_array[c][b][a+1])*(temp_array[c][b][a-1]-temp_array[c][b][a+1]) + thermal_array[c][b][a]*(temp_array[c][b][a+1]+temp_array[c][b][a-1]-2*temp_array[c][b][a]))/(delta_x*delta_x)
+                    #y_array[c][b][a] = ((thermal_array[c][b][a]-thermal_array[c][b+1][a])*(temp_array[c][b][a]-temp_array[c][b+1][a]) + thermal_array[c][b][a]*(2*temp_array[c][b+1][a]-2*temp_array[c][b][a]))/(delta_y*delta_y)
+                    #z_array[c][b][a] = ((thermal_array[c-1][b][a]-thermal_array[c][b][a])*(temp_array[c-1][b][a]-temp_array[c][b][a]) + thermal_array[c][b][a]*(2*temp_array[c-1][b][a]-2*temp_array[c][b][a]))/(delta_z*delta_z) 
+                    
+
+                elif a > 1 and b==0 and a+2<shape_array and c==0:#13
+                    
+                    x_array[c][b][a] = ((thermal_array[c][b][a-1]+thermal_array[c][b][a])*(temp_array[c][b][a-1]-temp_array[c][b][a])-(thermal_array[c][b][a]+thermal_array[c][b][a+1])*(temp_array[c][b][a]-temp_array[c][b][a+1]))/(2*delta_x*delta_x)
+                    y_array[c][b][a] = (-(thermal_array[c][b][a]+thermal_array[c][b+1][a])*(temp_array[c][b][a]-temp_array[c][b+1][a]))/(2*delta_y*delta_y)
+                    z_array[c][b][a] = (-(thermal_array[c][b][a]+thermal_array[c+1][b][a])*(temp_array[c][b][a]-temp_array[c+1][b][a]))/(2*delta_z*delta_z)
+                    
+                    #x_array[c][b][a] = .25*((thermal_array[c][b][a-1]-thermal_array[c][b][a+1])*(temp_array[c][b][a-1]-temp_array[c][b][a+1]) + thermal_array[c][b][a]*(temp_array[c][b][a+1]+temp_array[c][b][a-1]-2*temp_array[c][b][a]))/(delta_x*delta_x)
+                    #y_array[c][b][a] = ((thermal_array[c][b][a]-thermal_array[c][b+1][a])*(temp_array[c][b][a]-temp_array[c][b+1][a]) + thermal_array[c][b][a]*(2*temp_array[c][b+1][a]-2*temp_array[c][b][a]))/(delta_y*delta_y)
+                    #z_array[c][b][a] = ((thermal_array[c][b][a]-thermal_array[c+1][b][a])*(temp_array[c][b][a]-temp_array[c+1][b][a]) + thermal_array[c][b][a]*(2*temp_array[c+1][b][a]-2*temp_array[c][b][a]))/(delta_z*delta_z)
+                    
+                elif a > 1 and b+1==shape_array and a+2<shape_array and c+1==shape_array:#14
+                    
+                    x_array[c][b][a] = ((thermal_array[c][b][a-1]+thermal_array[c][b][a])*(temp_array[c][b][a-1]-temp_array[c][b][a])-(thermal_array[c][b][a]+thermal_array[c][b][a+1])*(temp_array[c][b][a]-temp_array[c][b][a+1]))/(2*delta_x*delta_x)
+                    y_array[c][b][a] = ((thermal_array[c][b-1][a]+thermal_array[c][b][a])*(temp_array[c][b-1][a]-temp_array[c][b][a]))/(2*delta_y*delta_y)
+                    z_array[c][b][a] = ((thermal_array[c-1][b][a]+thermal_array[c][b][a])*(temp_array[c-1][b][a]-temp_array[c][b][a]))/(2*delta_z*delta_z)
+                    
+                    #x_array[c][b][a] = .25*((thermal_array[c][b][a-1]-thermal_array[c][b][a+1])*(temp_array[c][b][a-1]-temp_array[c][b][a+1]) + thermal_array[c][b][a]*(temp_array[c][b][a+1]+temp_array[c][b][a-1]-2*temp_array[c][b][a]))/(delta_x*delta_x)
+                    #y_array[c][b][a] = ((thermal_array[c][b-1][a]-thermal_array[c][b][a])*(temp_array[c][b-1][a]-temp_array[c][b][a]) + thermal_array[c][b][a]*(2*temp_array[c][b-1][a]-2*temp_array[c][b][a]))/(delta_y*delta_y) 
+                    #z_array[c][b][a] = ((thermal_array[c-1][b][a]-thermal_array[c][b][a])*(temp_array[c-1][b][a]-temp_array[c][b][a]) + thermal_array[c][b][a]*(2*temp_array[c-1][b][a]-2*temp_array[c][b][a]))/(delta_z*delta_z) 
+                    
+                elif a > 1 and b+1==shape_array and a+2<shape_array and c==0:#15
+                    
+                    x_array[c][b][a] = ((thermal_array[c][b][a-1]+thermal_array[c][b][a])*(temp_array[c][b][a-1]-temp_array[c][b][a])-(thermal_array[c][b][a]+thermal_array[c][b][a+1])*(temp_array[c][b][a]-temp_array[c][b][a+1]))/(2*delta_x*delta_x)
+                    y_array[c][b][a] = ((thermal_array[c][b-1][a]+thermal_array[c][b][a])*(temp_array[c][b-1][a]-temp_array[c][b][a]))/(2*delta_y*delta_y)
+                    z_array[c][b][a] = (-(thermal_array[c][b][a]+thermal_array[c+1][b][a])*(temp_array[c][b][a]-temp_array[c+1][b][a]))/(2*delta_z*delta_z)
+                    
+                    #x_array[c][b][a] = .25*((thermal_array[c][b][a-1]-thermal_array[c][b][a+1])*(temp_array[c][b][a-1]-temp_array[c][b][a+1]) + thermal_array[c][b][a]*(temp_array[c][b][a+1]+temp_array[c][b][a-1]-2*temp_array[c][b][a]))/(delta_x*delta_x)
+                    #y_array[c][b][a] = ((thermal_array[c][b-1][a]-thermal_array[c][b][a])*(temp_array[c][b-1][a]-temp_array[c][b][a]) + thermal_array[c][b][a]*(2*temp_array[c][b-1][a]-2*temp_array[c][b][a]))/(delta_y*delta_y) 
+                    #z_array[c][b][a] = ((thermal_array[c][b][a]-thermal_array[c+1][b][a])*(temp_array[c][b][a]-temp_array[c+1][b][a]) + thermal_array[c][b][a]*(2*temp_array[c+1][b][a]-2*temp_array[c][b][a]))/(delta_z*delta_z)
+    
+    
+    fee = update_pipe_temp(copy_temp_array,copy_alpha_array)
+    fie = update_water_temp(copy_temp_array)
+    array_pipe.append(fee)
+    array_water.append(fie)
+    additive_array = fee + fie
+    
+    
+    #additive_array = update_water_temp(copy_temp_array)+update_pipe_temp(copy_temp_array,copy_alpha_array)
+    
+    
+    
+    new_temp_array = temp_array + coefficient_array*(x_array + y_array + z_array) + additive_array
+    
+    return(new_temp_array)
+
+def is_water(c,b,a,shape_array):
+    
+    value = False
+    
+    if a==0 and b ==0:
+        value = True              
+    elif a == 0 and b == (shape_array-1):
+        value = True                
+    elif a == (shape_array-1) and b == 0:
+        value = True                
+    elif a == (shape_array-1) and b == (shape_array-1):
+        value = True
+        
+    return(value)    
+        
+    
+def convection_coefficient(temp):
+    
+    w = IAPWS97(T = temp, x=1)
+    
+    number = .027*w.k*((velocity/(w.nu))**.8)*((w.Prandt)**(1/3))/((pipe_diameter)**.2)
+    
+    return(number)
+        
+def update_water_temp(temp_array):
+    
+    new_temp_array = numpy.copy(temp_array)
+
+    indices = range(temp_array.shape[0])
+    shape_array = temp_array.shape[0]
+    
+    for a in indices:
+        for b in indices:
+            for c in indices:
+                if is_water(c,b,a,shape_array) == True:
+                    
+                    if ((a==0 and b ==0) or (a == 0 and b == (shape_array-1))) and c < (shape_array-1):
+                        temp = new_temp_array[c][b][a]
+                        error_temps.append(temp)
+                        water = IAPWS97(T = temp, x = 1)
+                        denominator = delta_x*delta_y*water.rho*water.cp*4000
+                        new_temp_array[c+1][b][a] = temp+.005*3.1415*pipe_diameter*convection_coefficient(temp)*(new_temp_array[c][b][a+1]-temp)/denominator
+                        
+                     
+                    elif ((a == (shape_array-1) and b == 0) or (a == (shape_array-1) and b == (shape_array-1))) and c <(shape_array-1):
+                        temp = new_temp_array[c][b][a]
+                        water = IAPWS97(T = temp, x = 1)
+                        denominator = delta_x*delta_y*water.rho*water.cp*4000
+                        new_temp_array[c+1][b][a] = temp+.005*3.1415*pipe_diameter*convection_coefficient(temp)*(new_temp_array[c][b][a-1]-temp)/denominator
+                
+                
+    
+    output_array = new_temp_array - temp_array
+    return(output_array)
+
+def update_pipe_temp(temp_array,alpha_array):
+    
+    new_temp_array = numpy.copy(temp_array)
+    copy_temp_array = numpy.copy(temp_array)
+    copy_alpha_array = numpy.copy(alpha_array)
+    new_alpha = numpy.copy(alpha_array)
+    
+    indices = range(temp_array.shape[0])
+    shape_array = temp_array.shape[0]
+    
+    thermal_array = (1-copy_alpha_array)*thermal_conductivity+copy_alpha_array*thermal_conductivity_product
+    
+    for a in indices:
+        for b in indices:
+            for c in indices:
+                
+                answer = not_tank(c,b,a)
+                if answer == True:
+                    thermal_array[c][b][a] = 18
+    
+    for a in indices:
+        for b in indices:
+            for c in indices:
+                if is_water(c,b,a,shape_array) == False and not_tank(c,b,a) == True:
+                    
+                    if a==0 and b==1 and (c>0 and c<9):
+                        
+                        temp_water = copy_temp_array[c][b-1][a]
+                        temp = copy_temp_array[c][b][a]
+                        
+                        q_in_water = convection_coefficient(temp_water)*(temp_water-temp)*3.1415*pipe_diameter*delta_z/8 
+                        q_in_up = ((thermal_array[c][b][a]+thermal_array[c+1][b][a])/2)*((temp_array[c+1][b][a]-temp)*delta_z)
+                        q_in_down = ((thermal_array[c][b][a]+thermal_array[c-1][b][a])/2)*((temp_array[c-1][b][a]-temp)*delta_z)
+                        q_in_right = ((thermal_array[c][b][a]+thermal_array[c][b][a+1])/2)*((temp_array[c][b][a+1]-temp)*delta_x)
+                        q_in_back = ((thermal_array[c][b][a]+thermal_array[c][b+1][a])/2)*((temp_array[c][b+1][a]-temp)*delta_y)
+                        
+                        array_q.append(q_in_water)
+                        array_q.append(q_in_up)
+                        array_q.append(q_in_down)
+                        array_q.append(q_in_right)
+                        array_q.append(q_in_back)
+                        
+                        q_in_total = q_in_water + q_in_up + q_in_down + q_in_right + q_in_back
+                        
+                        new_temp_array[c][b][a] = temp +(delta_t/(pipe_density*pipe_Cp*delta_x*delta_y*delta_z))*q_in_total
+                        
+                    elif a==0 and b==1 and c==0:
+                        
+                        temp_water = copy_temp_array[c][b-1][a]
+                        temp = copy_temp_array[c][b][a]
+                        
+                        q_in_water = convection_coefficient(temp_water)*(temp_water-temp)*3.1415*pipe_diameter*delta_z/8
+                        q_in_up = ((thermal_array[c][b][a]+thermal_array[c+1][b][a])/2)*((temp_array[c+1][b][a]-temp)*delta_z)
+                        q_in_right = ((thermal_array[c][b][a]+thermal_array[c][b][a+1])/2)*((temp_array[c][b][a+1]-temp)*delta_x)
+                        q_in_back = ((thermal_array[c][b][a]+thermal_array[c][b+1][a])/2)*((temp_array[c][b+1][a]-temp)*delta_y)
+                        
+                        q_in_total = q_in_water + q_in_up + q_in_right + q_in_back
+                        
+                        new_temp_array[c][b][a] = temp +(delta_t/(pipe_density*pipe_Cp*delta_x*delta_y*delta_z))*q_in_total
+                        
+                    elif a==0 and b==1 and c==9:
+                        
+                        temp_water = copy_temp_array[c][b-1][a]
+                        temp = copy_temp_array[c][b][a]
+                        
+                        q_in_water = convection_coefficient(temp_water)*(temp_water-temp)*3.1415*pipe_diameter*delta_z/8
+                        q_in_down = ((thermal_array[c][b][a]+thermal_array[c-1][b][a])/2)*((temp_array[c-1][b][a]-temp)*delta_z)
+                        q_in_right = ((thermal_array[c][b][a]+thermal_array[c][b][a+1])/2)*((temp_array[c][b][a+1]-temp)*delta_x)
+                        q_in_back = ((thermal_array[c][b][a]+thermal_array[c][b+1][a])/2)*((temp_array[c][b+1][a]-temp)*delta_y)
+                        
+                        q_in_total = q_in_water + q_in_down + q_in_right + q_in_back
+                        
+                        new_temp_array[c][b][a] = temp +(delta_t/(pipe_density*pipe_Cp*delta_x*delta_y*delta_z))*q_in_total
+                        
+                        
+                        
+                        
+                    elif a==0 and b==8 and (c>0 and c<9):
+                        
+                        temp_water = copy_temp_array[c][b+1][a]
+                        temp = copy_temp_array[c][b][a]
+                        
+                        q_in_water = convection_coefficient(temp_water)*(temp_water-temp)*3.1415*pipe_diameter*delta_z/8
+                        q_in_up = ((thermal_array[c][b][a]+thermal_array[c+1][b][a])/2)*((temp_array[c+1][b][a]-temp)*delta_z)
+                        q_in_down = ((thermal_array[c][b][a]+thermal_array[c-1][b][a])/2)*((temp_array[c-1][b][a]-temp)*delta_z)
+                        q_in_right = ((thermal_array[c][b][a]+thermal_array[c][b][a+1])/2)*((temp_array[c][b][a+1]-temp)*delta_x)
+                        q_in_front = ((thermal_array[c][b][a]+thermal_array[c][b-1][a])/2)*((temp_array[c][b-1][a]-temp)*delta_y)
+                        
+                        q_in_total = q_in_water + q_in_up + q_in_down + q_in_right + q_in_front
+                        
+                        new_temp_array[c][b][a] = temp +(delta_t/(pipe_density*pipe_Cp*delta_x*delta_y*delta_z))*q_in_total
+                        
+                    elif a==0 and b==8 and c==0:
+                        
+                        temp_water = copy_temp_array[c][b+1][a]
+                        temp = copy_temp_array[c][b][a]
+                        
+                        q_in_water = convection_coefficient(temp_water)*(temp_water-temp)*3.1415*pipe_diameter*delta_z/8 
+                        q_in_up = ((thermal_array[c][b][a]+thermal_array[c+1][b][a])/2)*((temp_array[c+1][b][a]-temp)*delta_z)
+                        q_in_right = ((thermal_array[c][b][a]+thermal_array[c][b][a+1])/2)*((temp_array[c][b][a+1]-temp)*delta_x)
+                        q_in_front = ((thermal_array[c][b][a]+thermal_array[c][b-1][a])/2)*((temp_array[c][b-1][a]-temp)*delta_y)
+                        
+                        q_in_total = q_in_water + q_in_up + q_in_right + q_in_front
+                        
+                        new_temp_array[c][b][a] = temp +(delta_t/(pipe_density*pipe_Cp*delta_x*delta_y*delta_z))*q_in_total
+                        
+                    elif a==0 and b==8 and c==9:
+                        
+                        temp_water = copy_temp_array[c][b+1][a]
+                        temp = copy_temp_array[c][b][a]
+                        
+                        q_in_water = convection_coefficient(temp_water)*(temp_water-temp)*3.1415*pipe_diameter*delta_z/8
+                        q_in_down = ((thermal_array[c][b][a]+thermal_array[c-1][b][a])/2)*((temp_array[c-1][b][a]-temp)*delta_z)
+                        q_in_right = ((thermal_array[c][b][a]+thermal_array[c][b][a+1])/2)*((temp_array[c][b][a+1]-temp)*delta_x)
+                        q_in_front = ((thermal_array[c][b][a]+thermal_array[c][b-1][a])/2)*((temp_array[c][b-1][a]-temp)*delta_y)
+                        
+                        q_in_total = q_in_water + q_in_down + q_in_right + q_in_front
+                        
+                        new_temp_array[c][b][a] = temp +(delta_t/(pipe_density*pipe_Cp*delta_x*delta_y*delta_z))*q_in_total
+                        
+                        
+                        
+                        
+                    elif a==1 and b==0 and (c>0 and c<9):
+                        
+                        temp_water = copy_temp_array[c][b][a-1]
+                        temp = copy_temp_array[c][b][a]
+                        
+                        q_in_water = convection_coefficient(temp_water)*(temp_water-temp)*3.1415*pipe_diameter*delta_z/8
+                        q_in_up = ((thermal_array[c][b][a]+thermal_array[c+1][b][a])/2)*((temp_array[c+1][b][a]-temp)*delta_z)
+                        q_in_down = ((thermal_array[c][b][a]+thermal_array[c-1][b][a])/2)*((temp_array[c-1][b][a]-temp)*delta_z)
+                        q_in_right = ((thermal_array[c][b][a]+thermal_array[c][b][a+1])/2)*((temp_array[c][b][a+1]-temp)*delta_x)
+                        q_in_back = ((thermal_array[c][b][a]+thermal_array[c][b+1][a])/2)*((temp_array[c][b+1][a]-temp)*delta_y)
+                        
+                        q_in_total = q_in_water + q_in_up + q_in_down + q_in_right + q_in_back
+                        
+                        new_temp_array[c][b][a] = temp +(delta_t/(pipe_density*pipe_Cp*delta_x*delta_y*delta_z))*q_in_total
+                        
+                    elif a==1 and b==0 and c==0:      
+                        
+                        temp_water = copy_temp_array[c][b][a-1]
+                        temp = copy_temp_array[c][b][a]
+                        
+                        q_in_water = convection_coefficient(temp_water)*(temp_water-temp)*3.1415*pipe_diameter*delta_z/8
+                        q_in_up = ((thermal_array[c][b][a]+thermal_array[c+1][b][a])/2)*((temp_array[c+1][b][a]-temp)*delta_z)
+                        q_in_right = ((thermal_array[c][b][a]+thermal_array[c][b][a+1])/2)*((temp_array[c][b][a+1]-temp)*delta_x)
+                        q_in_back = ((thermal_array[c][b][a]+thermal_array[c][b+1][a])/2)*((temp_array[c][b+1][a]-temp)*delta_y)
+                        
+                        q_in_total = q_in_water + q_in_up + q_in_right + q_in_back
+                        
+                        new_temp_array[c][b][a] = temp +(delta_t/(pipe_density*pipe_Cp*delta_x*delta_y*delta_z))*q_in_total
+                        
+                    elif a==1 and b==0 and c==9:
+                        
+                        temp_water = copy_temp_array[c][b][a-1]
+                        temp = copy_temp_array[c][b][a]
+                        
+                        q_in_water = convection_coefficient(temp_water)*(temp_water-temp)*3.1415*pipe_diameter*delta_z/8 
+                        q_in_down = ((thermal_array[c][b][a]+thermal_array[c-1][b][a])/2)*((temp_array[c-1][b][a]-temp)*delta_z)
+                        q_in_right = ((thermal_array[c][b][a]+thermal_array[c][b][a+1])/2)*((temp_array[c][b][a+1]-temp)*delta_x)
+                        q_in_back = ((thermal_array[c][b][a]+thermal_array[c][b+1][a])/2)*((temp_array[c][b+1][a]-temp)*delta_y)
+                        
+                        q_in_total = q_in_water + q_in_down + q_in_right + q_in_back
+                        
+                        new_temp_array[c][b][a] = temp +(delta_t/(pipe_density*pipe_Cp*delta_x*delta_y*delta_z))*q_in_total
+                        
+                        
+                        
+                        
+                        
+                    elif a==1 and b==9 and (c>0 and c<9):
+                        
+                        temp_water = copy_temp_array[c][b][a-1]
+                        temp = copy_temp_array[c][b][a]
+                        
+                        q_in_water = convection_coefficient(temp_water)*(temp_water-temp)*3.1415*pipe_diameter*delta_z/8 
+                        q_in_up = ((thermal_array[c][b][a]+thermal_array[c+1][b][a])/2)*((temp_array[c+1][b][a]-temp)*delta_z)
+                        q_in_down = ((thermal_array[c][b][a]+thermal_array[c-1][b][a])/2)*((temp_array[c-1][b][a]-temp)*delta_z)
+                        q_in_right = ((thermal_array[c][b][a]+thermal_array[c][b][a+1])/2)*((temp_array[c][b][a+1]-temp)*delta_x)
+                        q_in_front = ((thermal_array[c][b][a]+thermal_array[c][b-1][a])/2)*((temp_array[c][b-1][a]-temp)*delta_y)
+                        
+                        q_in_total = q_in_water + q_in_up + q_in_down + q_in_right + q_in_front
+                        
+                        new_temp_array[c][b][a] = temp +(delta_t/(pipe_density*pipe_Cp*delta_x*delta_y*delta_z))*q_in_total
+                    
+                    elif a==1 and b==9 and c==0:
+                        
+                        temp_water = copy_temp_array[c][b][a-1]
+                        temp = copy_temp_array[c][b][a]
+                        
+                        q_in_water = convection_coefficient(temp_water)*(temp_water-temp)*3.1415*pipe_diameter*delta_z/8
+                        q_in_up = ((thermal_array[c][b][a]+thermal_array[c+1][b][a])/2)*((temp_array[c+1][b][a]-temp)*delta_z)
+                        q_in_right = ((thermal_array[c][b][a]+thermal_array[c][b][a+1])/2)*((temp_array[c][b][a+1]-temp)*delta_x)
+                        q_in_front = ((thermal_array[c][b][a]+thermal_array[c][b-1][a])/2)*((temp_array[c][b-1][a]-temp)*delta_y)
+                        
+                        q_in_total = q_in_water + q_in_up + q_in_right + q_in_front
+                        
+                        new_temp_array[c][b][a] = temp +(delta_t/(pipe_density*pipe_Cp*delta_x*delta_y*delta_z))*q_in_total
+                        
+                    elif a==1 and b==9 and c==9:    
+                        
+                        temp_water = copy_temp_array[c][b][a-1]
+                        temp = copy_temp_array[c][b][a]
+                        
+                        q_in_water = convection_coefficient(temp_water)*(temp_water-temp)*3.1415*pipe_diameter*delta_z/8
+                        q_in_down = ((thermal_array[c][b][a]+thermal_array[c-1][b][a])/2)*((temp_array[c-1][b][a]-temp)*delta_z)
+                        q_in_right = ((thermal_array[c][b][a]+thermal_array[c][b][a+1])/2)*((temp_array[c][b][a+1]-temp)*delta_x)
+                        q_in_front = ((thermal_array[c][b][a]+thermal_array[c][b-1][a])/2)*((temp_array[c][b-1][a]-temp)*delta_y)
+                        
+                        q_in_total = q_in_water + q_in_down + q_in_right + q_in_front
+                        
+                        new_temp_array[c][b][a] = temp +(delta_t/(pipe_density*pipe_Cp*delta_x*delta_y*delta_z))*q_in_total
+                        
+                        
+                        
+                        
+                    elif a==8 and b==0 and (c>0 and c<9):
+                        
+                        temp_water = copy_temp_array[c][b][a+1]
+                        temp = copy_temp_array[c][b][a]
+                        
+                        q_in_water = convection_coefficient(temp_water)*(temp_water-temp)*3.1415*pipe_diameter*delta_z/8
+                        q_in_up = ((thermal_array[c][b][a]+thermal_array[c+1][b][a])/2)*((temp_array[c+1][b][a]-temp)*delta_z)
+                        q_in_down = ((thermal_array[c][b][a]+thermal_array[c-1][b][a])/2)*((temp_array[c-1][b][a]-temp)*delta_z)
+                        q_in_left = ((thermal_array[c][b][a]+thermal_array[c][b][a-1])/2)*((temp_array[c][b][a-1]-temp)*delta_x)
+                        q_in_back = ((thermal_array[c][b][a]+thermal_array[c][b+1][a])/2)*((temp_array[c][b+1][a]-temp)*delta_y)
+                        
+                        q_in_total = q_in_water + q_in_up + q_in_down + q_in_left + q_in_back
+                        
+                        new_temp_array[c][b][a] = temp +(delta_t/(pipe_density*pipe_Cp*delta_x*delta_y*delta_z))*q_in_total
+                        
+                    elif a==8 and b==0 and c==0:
+                        
+                        temp_water = copy_temp_array[c][b][a+1]
+                        temp = copy_temp_array[c][b][a]
+                        
+                        q_in_water = convection_coefficient(temp_water)*(temp_water-temp)*3.1415*pipe_diameter*delta_z/8
+                        q_in_up = ((thermal_array[c][b][a]+thermal_array[c+1][b][a])/2)*((temp_array[c+1][b][a]-temp)*delta_z)
+                        q_in_left = ((thermal_array[c][b][a]+thermal_array[c][b][a-1])/2)*((temp_array[c][b][a-1]-temp)*delta_x)
+                        q_in_back = ((thermal_array[c][b][a]+thermal_array[c][b+1][a])/2)*((temp_array[c][b+1][a]-temp)*delta_y)
+                        
+                        q_in_total = q_in_water + q_in_up + q_in_left + q_in_back
+                        
+                        new_temp_array[c][b][a] = temp +(delta_t/(pipe_density*pipe_Cp*delta_x*delta_y*delta_z))*q_in_total
+                        
+                    elif a==8 and b==0 and c==9:
+                        
+                        temp_water = copy_temp_array[c][b][a+1]
+                        temp = copy_temp_array[c][b][a]
+                        
+                        q_in_water = convection_coefficient(temp_water)*(temp_water-temp)*3.1415*pipe_diameter*delta_z/8
+                        q_in_down = ((thermal_array[c][b][a]+thermal_array[c-1][b][a])/2)*((temp_array[c-1][b][a]-temp)*delta_z)
+                        q_in_left = ((thermal_array[c][b][a]+thermal_array[c][b][a-1])/2)*((temp_array[c][b][a-1]-temp)*delta_x)
+                        q_in_back = ((thermal_array[c][b][a]+thermal_array[c][b+1][a])/2)*((temp_array[c][b+1][a]-temp)*delta_y)
+                        
+                        q_in_total = q_in_water + q_in_up + q_in_down + q_in_left + q_in_back
+                        
+                        new_temp_array[c][b][a] = temp +(delta_t/(pipe_density*pipe_Cp*delta_x*delta_y*delta_z))*q_in_total
+                        
+                        
+                        
+                        
+                        
+                        
+                    elif a==8 and b==9 and (c>0 and c<9):
+                        
+                        temp_water = copy_temp_array[c][b][a+1]
+                        temp = copy_temp_array[c][b][a]
+                        
+                        q_in_water = convection_coefficient(temp_water)*(temp_water-temp)*3.1415*pipe_diameter*delta_z/8
+                        q_in_up = ((thermal_array[c][b][a]+thermal_array[c+1][b][a])/2)*((temp_array[c+1][b][a]-temp)*delta_z)
+                        q_in_down = ((thermal_array[c][b][a]+thermal_array[c-1][b][a])/2)*((temp_array[c-1][b][a]-temp)*delta_z)
+                        q_in_left = ((thermal_array[c][b][a]+thermal_array[c][b][a-1])/2)*((temp_array[c][b][a-1]-temp)*delta_x)
+                        q_in_front = ((thermal_array[c][b][a]+thermal_array[c][b-1][a])/2)*((temp_array[c][b-1][a]-temp)*delta_y)
+                        
+                        q_in_total = q_in_water + q_in_up + q_in_down + q_in_left + q_in_front
+                        
+                        new_temp_array[c][b][a] = temp +(delta_t/(pipe_density*pipe_Cp*delta_x*delta_y*delta_z))*q_in_total
+                        
+                    elif a==8 and b==9 and c==0:
+                        
+                        temp_water = copy_temp_array[c][b][a+1]
+                        temp = copy_temp_array[c][b][a]
+                        
+                        q_in_water = convection_coefficient(temp_water)*(temp_water-temp)*3.1415*pipe_diameter*delta_z/8
+                        q_in_up = ((thermal_array[c][b][a]+thermal_array[c+1][b][a])/2)*((temp_array[c+1][b][a]-temp)*delta_z)
+                        q_in_left = ((thermal_array[c][b][a]+thermal_array[c][b][a-1])/2)*((temp_array[c][b][a-1]-temp)*delta_x)
+                        q_in_front = ((thermal_array[c][b][a]+thermal_array[c][b-1][a])/2)*((temp_array[c][b-1][a]-temp)*delta_y)
+                        
+                        q_in_total = q_in_water + q_in_up + q_in_left + q_in_front
+                        
+                        new_temp_array[c][b][a] = temp +(delta_t/(pipe_density*pipe_Cp*delta_x*delta_y*delta_z))*q_in_total
+                        
+                    elif a==8 and b==9 and c==9:
+                        
+                        temp_water = copy_temp_array[c][b][a+1]
+                        temp = copy_temp_array[c][b][a]
+                        
+                        q_in_water = convection_coefficient(temp_water)*(temp_water-temp)*3.1415*pipe_diameter*delta_z/8
+                        q_in_down = ((thermal_array[c][b][a]+thermal_array[c-1][b][a])/2)*((temp_array[c-1][b][a]-temp)*delta_z)
+                        q_in_left = ((thermal_array[c][b][a]+thermal_array[c][b][a-1])/2)*((temp_array[c][b][a-1]-temp)*delta_x)
+                        q_in_front = ((thermal_array[c][b][a]+thermal_array[c][b-1][a])/2)*((temp_array[c][b-1][a]-temp)*delta_y)
+                        
+                        q_in_total = q_in_water + q_in_down + q_in_left + q_in_front
+                        
+                        new_temp_array[c][b][a] = temp +(delta_t/(pipe_density*pipe_Cp*delta_x*delta_y*delta_z))*q_in_total
+                        
+                        
+                        
+                        
+                        
+                    elif a==9 and b==1 and (c>0 and c<9):
+                        
+                        temp_water = copy_temp_array[c][b-1][a]
+                        temp = copy_temp_array[c][b][a]
+                        
+                        q_in_water = convection_coefficient(temp_water)*(temp_water-temp)*3.1415*pipe_diameter*delta_z/8
+                        q_in_up = ((thermal_array[c][b][a]+thermal_array[c+1][b][a])/2)*((temp_array[c+1][b][a]-temp)*delta_z)
+                        q_in_down = ((thermal_array[c][b][a]+thermal_array[c-1][b][a])/2)*((temp_array[c-1][b][a]-temp)*delta_z)
+                        q_in_left = ((thermal_array[c][b][a]+thermal_array[c][b][a-1])/2)*((temp_array[c][b][a-1]-temp)*delta_x)
+                        q_in_back = ((thermal_array[c][b][a]+thermal_array[c][b+1][a])/2)*((temp_array[c][b+1][a]-temp)*delta_y)
+                        
+                        q_in_total = q_in_water + q_in_up + q_in_down + q_in_left + q_in_back
+                        
+                        new_temp_array[c][b][a] = temp +(delta_t/(pipe_density*pipe_Cp*delta_x*delta_y*delta_z))*q_in_total
+                        
+                    elif a==9 and b==1 and c==0:
+                        
+                        temp_water = copy_temp_array[c][b-1][a]
+                        temp = copy_temp_array[c][b][a]
+                        
+                        q_in_water = convection_coefficient(temp_water)*(temp_water-temp)*3.1415*pipe_diameter*delta_z/8
+                        q_in_up = ((thermal_array[c][b][a]+thermal_array[c+1][b][a])/2)*((temp_array[c+1][b][a]-temp)*delta_z)
+                        q_in_left = ((thermal_array[c][b][a]+thermal_array[c][b][a-1])/2)*((temp_array[c][b][a-1]-temp)*delta_x)
+                        q_in_back = ((thermal_array[c][b][a]+thermal_array[c][b+1][a])/2)*((temp_array[c][b+1][a]-temp)*delta_y)
+                        
+                        q_in_total = q_in_water + q_in_up + q_in_left + q_in_back
+                        
+                        new_temp_array[c][b][a] = temp +(delta_t/(pipe_density*pipe_Cp*delta_x*delta_y*delta_z))*q_in_total
+                        
+                    elif a==9 and b==1 and c==9:    
+                        
+                        temp_water = copy_temp_array[c][b-1][a]
+                        temp = copy_temp_array[c][b][a]
+                        
+                        q_in_water = convection_coefficient(temp_water)*(temp_water-temp)*3.1415*pipe_diameter*delta_z/8
+                        q_in_down = ((thermal_array[c][b][a]+thermal_array[c-1][b][a])/2)*((temp_array[c-1][b][a]-temp)*delta_z)
+                        q_in_left = ((thermal_array[c][b][a]+thermal_array[c][b][a-1])/2)*((temp_array[c][b][a-1]-temp)*delta_x)
+                        q_in_back = ((thermal_array[c][b][a]+thermal_array[c][b+1][a])/2)*((temp_array[c][b+1][a]-temp)*delta_y)
+                        
+                        q_in_total = q_in_water + q_in_down + q_in_left + q_in_back
+                        
+                        new_temp_array[c][b][a] = temp +(delta_t/(pipe_density*pipe_Cp*delta_x*delta_y*delta_z))*q_in_total
+                        
+                        
+                        
+                        
+                        
+                    elif a==9 and b==8 and (c>0 and c<9):
+                        
+                        temp_water = copy_temp_array[c][b+1][a]
+                        temp = copy_temp_array[c][b][a]
+                        
+                        q_in_water = convection_coefficient(temp_water)*(temp_water-temp)*3.1415*pipe_diameter*delta_z/8
+                        q_in_up = ((thermal_array[c][b][a]+thermal_array[c+1][b][a])/2)*((temp_array[c+1][b][a]-temp)*delta_z)
+                        q_in_down = ((thermal_array[c][b][a]+thermal_array[c-1][b][a])/2)*((temp_array[c-1][b][a]-temp)*delta_z)
+                        q_in_left = ((thermal_array[c][b][a]+thermal_array[c][b][a-1])/2)*((temp_array[c][b][a-1]-temp)*delta_x)
+                        q_in_front = ((thermal_array[c][b][a]+thermal_array[c][b-1][a])/2)*((temp_array[c][b-1][a]-temp)*delta_y)
+                        
+                        q_in_total = q_in_water + q_in_up + q_in_down + q_in_left + q_in_back
+                        
+                        new_temp_array[c][b][a] = temp +(delta_t/(pipe_density*pipe_Cp*delta_x*delta_y*delta_z))*q_in_total
+                        
+                    elif a==9 and b==8 and c==0:
+                        
+                        temp_water = copy_temp_array[c][b+1][a]
+                        temp = copy_temp_array[c][b][a]
+                        
+                        q_in_water = convection_coefficient(temp_water)*(temp_water-temp)*3.1415*pipe_diameter*delta_z/8
+                        q_in_up = ((thermal_array[c][b][a]+thermal_array[c+1][b][a])/2)*((temp_array[c+1][b][a]-temp)*delta_z)
+                        q_in_left = ((thermal_array[c][b][a]+thermal_array[c][b][a-1])/2)*((temp_array[c][b][a-1]-temp)*delta_x)
+                        q_in_front = ((thermal_array[c][b][a]+thermal_array[c][b-1][a])/2)*((temp_array[c][b-1][a]-temp)*delta_y)
+                        
+                        q_in_total = q_in_water + q_in_up + q_in_left + q_in_back
+                        
+                        new_temp_array[c][b][a] = temp +(delta_t/(pipe_density*pipe_Cp*delta_x*delta_y*delta_z))*q_in_total
+                        
+                    elif a==9 and b==8 and c==9:    
+                        
+                        temp_water = copy_temp_array[c][b+1][a]
+                        temp = copy_temp_array[c][b][a]
+                        
+                        q_in_water = convection_coefficient(temp_water)*(temp_water-temp)*3.1415*pipe_diameter*delta_z/8
+                        q_in_down = ((thermal_array[c][b][a]+thermal_array[c-1][b][a])/2)*((temp_array[c-1][b][a]-temp)*delta_z)
+                        q_in_left = ((thermal_array[c][b][a]+thermal_array[c][b][a-1])/2)*((temp_array[c][b][a-1]-temp)*delta_x)
+                        q_in_front = ((thermal_array[c][b][a]+thermal_array[c][b-1][a])/2)*((temp_array[c][b-1][a]-temp)*delta_y)
+                        
+                        q_in_total = q_in_water + q_in_down + q_in_left + q_in_back
+                        
+                        new_temp_array[c][b][a] = temp +(delta_t/(pipe_density*pipe_Cp*delta_x*delta_y*delta_z))*q_in_total
+    
+    output_array = new_temp_array - temp_array
+    return(output_array)                    
+                    
+
+                    
+initial_conditions = open("/Users/mitchellsailsbery/ownCloud/PERCS/Modeling/Python_Take_2/small_2d_starting_test_values.csv")
+csv_ic = csv.reader(initial_conditions)
+array = []
+for row in csv_ic:
+    new_row = []
+    for element in row:
+        new_row.append(float(element))
+    array.append(new_row)
+
+array = numpy.array(array)
+array = numpy.tile(array,(10,1,1))
+
+initial_alpha_array = numpy.zeros((10,10,10))
+
+
+print(array)
+
+
+vid_surf_x_0 = []
+vid_surf_x_2 = []
+vid_surf_x_5 = []
+reacted_list = []
+
+counter = 0
+title = numpy.copy(array)
+copy_alpha = numpy.copy(initial_alpha_array)
+while counter < 10000:
+    
+    interim = reaction_update(title,copy_alpha)
+    title = interim[0]
+    copy_alpha = interim[1]
+    title = numpy.copy(inner_pipe_function(title,copy_alpha))
+    
+    counter += 1
+    if counter % 100 ==0:
+        vid_surf_x_0.append(title[:,:,0])
+        vid_surf_x_2.append(title[:,:,2])
+        vid_surf_x_5.append(title[:,:,5])
+        temp_over_time.append(title)
+        
+        if counter %1000 == 0:
+            print(title[0][:][:])
+            #print(copy_alpha[4,:,:])
+            
+print(title)
