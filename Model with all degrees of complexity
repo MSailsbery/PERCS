@@ -280,8 +280,7 @@ def inner_pipe_function(temp_array,alpha_array):
     
     fee = update_pipe_temp(copy_temp_array,copy_alpha_array)
     fie = update_water_temp(copy_temp_array)
-    array_pipe.append(fee)
-    array_water.append(fie)
+
     additive_array = fee + fie
     
     
@@ -384,11 +383,6 @@ def update_pipe_temp(temp_array,alpha_array):
                         q_in_right = ((thermal_array[c][b][a]+thermal_array[c][b][a+1])/2)*((temp_array[c][b][a+1]-temp)*delta_x)
                         q_in_back = ((thermal_array[c][b][a]+thermal_array[c][b+1][a])/2)*((temp_array[c][b+1][a]-temp)*delta_y)
                         
-                        array_q.append(q_in_water)
-                        array_q.append(q_in_up)
-                        array_q.append(q_in_down)
-                        array_q.append(q_in_right)
-                        array_q.append(q_in_back)
                         
                         q_in_total = q_in_water + q_in_up + q_in_down + q_in_right + q_in_back
                         
