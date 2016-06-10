@@ -330,7 +330,6 @@ def update_water_temp(temp_array):
                     
                     if ((a==0 and b ==0) or (a == 0 and b == (shape_array-1))) and c < (shape_array-1):
                         temp = new_temp_array[c][b][a]
-                        error_temps.append(temp)
                         water = IAPWS97(T = temp, x = 1)
                         denominator = delta_x*delta_y*water.rho*water.cp*4000
                         new_temp_array[c+1][b][a] = temp+.005*3.1415*pipe_diameter*convection_coefficient(temp)*(new_temp_array[c][b][a+1]-temp)/denominator
