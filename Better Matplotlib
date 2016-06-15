@@ -1,0 +1,104 @@
+from mpl_toolkits.mplot3d import Axes3D
+from matplotlib import cm
+from matplotlib.ticker import LinearLocator, FormatStrFormatter
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib import animation
+from numpy import array, zeros, linspace, meshgrid
+from mpl_toolkits.mplot3d import axes3d
+import warnings
+warnings.filterwarnings("ignore", category = DeprecationWarning)
+#print(vid_surf_x_0[0])
+
+#vid_surf_x_0 = np.load("/Users/mitchellsailsbery/ownCloud/PERCS/Modeling/Python_Plotting/Ultimate_x_0_1000000.npy")
+vid_surf_x_2 = np.load("/Users/mitchellsailsbery/ownCloud/PERCS/Modeling/Python_Plotting/Ultimate_x_2_1000000.npy")
+vid_surf_x_5 = np.load("/Users/mitchellsailsbery/ownCloud/PERCS/Modeling/Python_Plotting/Ultimate_x_5_1000000.npy")
+vid_surf_x_0 = np.load("/Users/mitchellsailsbery/ownCloud/PERCS/Modeling/Python_Plotting/Ultimate_temp_1000000.npy")
+alpha_info = np.load("/Users/mitchellsailsbery/ownCloud/PERCS/Modeling/Python_Plotting/Ultimate_alpha_1000000.npy")
+plt.rcParams['animation.ffmpeg_path'] = '/Users/mitchellsailsbery/Documents/ffmpeg'
+def function1(i, z1, line):
+    z1 = vid_surf_x_0[(10*i)%9999][:,:,0]
+    ax.clear()
+    line = ax.contourf(x,y,z1,zdir='z', vmin = 600, vmax = 637,cmap=cm.coolwarm)
+    ax.set_zlim([600,637])
+    ax.set_zlabel("Temperature in Kelvin")
+    ax.set_title("Temperature of surface cross section through time")
+    ax.axes.xaxis.set_ticklabels([])
+    ax.axes.yaxis.set_ticklabels([])
+    #time = str(((((30*i)%20000)/120)//5)*5)+" minutes"
+    time = str(int(((10*i)%9999)/60))+" minutes"
+    ax.set_xlabel(time)
+    return line
+
+#def function(i, z1, z3, line):
+    
+
+def function2(i, z2, line):
+    z2 = vid_surf_x_2[(30*i)%20000]
+    ax.clear()
+    line = ax.contourf(x,y,z2,zdir='z', vmin = 600, vmax = 637,cmap=cm.coolwarm)
+    ax.set_zlim([600,637])
+    ax.set_zlabel("Temperature in Kelvin")
+    ax.set_title("Temperature of cross section part way in through time")
+    ax.axes.xaxis.set_ticklabels([])
+    ax.axes.yaxis.set_ticklabels([])
+    #time = str(((((30*i)%20000)/120)//5)*5)+" minutes"
+    time = str(int(((30*i)%20000)/120))+" minutes"
+    ax.set_xlabel(time)
+    return line
+
+def function3(i, z3, line):
+    z3 = vid_surf_x_5[(30*i)%20000]
+    ax.clear()
+    line = ax.contourf(x,y,z3,zdir='z', vmin = 600, vmax = 637, cmap=cm.coolwarm)
+    ax.set_zlim([600,637])
+    ax.set_zlabel("Temperature in Kelvin")
+    ax.set_title("Temperature of center cross section through time")
+    ax.axes.xaxis.set_ticklabels([])
+    ax.axes.yaxis.set_ticklabels([])
+    #time = str(((((30*i)%20000)/120)//5)*5)+" minutes"
+    time = str(int(((30*i)%20000)/120))+" minutes"
+    ax.set_xlabel(time)
+    return line
+
+def function4(i,z4,line):
+    z4 = alpha_info[(10*i)%999][0,:,:]
+    ax.clear()
+    line = ax.contourf(x,y,z4,zdir='z', vmin = 0, vmax = 1, cmap=cm.gist_earth)
+    ax.set_zlim([0,1])
+    ax.set_zlabel("Reacted Fraction")
+    ax.axes.xaxis.set_ticklabels([])
+    ax.axes.yaxis.set_ticklabels([])
+    time = str(int(((10*i)%20000)/60))+" minutes"
+    ax.set_xlabel(time)
+    return line
+    
+#Writer = animation.writers['ffmpeg']
+#writer = Writer(fps=15, metadata=dict(artist='Me'), bitrate=1800)
+
+fig = plt.figure(figsize = (10,10))
+
+ax = fig.add_subplot(111, projection='3d')
+#ax2 = fig.add_subplot(111, projection='3d')
+#ax3 = fig.add_subplot(111, projection='3d')
+
+#Formatting
+#ax.set_title("")
+
+x = range(0,10,1)
+y = range(0,10,1)
+x,y = np.meshgrid(x,y)
+z1 = vid_surf_x_0[0][:,:,0]
+z2 = vid_surf_x_2[0]
+z3 = vid_surf_x_5[0]
+z4 = alpha_info[0][0,:,:]
+
+#line1 = ax.contourf(x,y,z1,zdir='z', cmap=cm.coolwarm)
+line = ax.contourf(x,y,z1,zdir='z', cmap=cm.coolwarm,vmin = 600, vmax = 637)
+
+mywriter = animation.FFMpegWriter()
+#ax.plot_surface(x,y,z, cmap =cm.coolwarm)
+ani = animation.FuncAnimation(fig, function1, fargs = (z1, line), interval = 20, blit = False, frames = 9998)
+#ani = animation.FuncAnimation(fig, function1, fargs = (z1, line), interval = 20, blit = False)
+ani.save('/Users/mitchellsailsbery/ownCloud/PERCS/Modeling/Python_Plotting/Ultimate_Model_Surface_637.mp4', writer=mywriter)
+#plt.show()
